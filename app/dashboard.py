@@ -123,14 +123,19 @@ with tab_attribution:
 # ---------------------------------------------------------------------------
 
 with tab_map:
-    st.subheader("Live Sensor Map")
-    st.info("Live real-time readings from the monitoring station network.")
+    st.subheader("Live Global PM2.5 Map")
+    st.info("Latest PM2.5 observations from OpenAQ. Marker clusters expand as you zoom in.")
 
     from app.components.map_view import create_sensor_map
     from streamlit_folium import st_folium
     
+    @st.cache_data(ttl=600, show_spinner=False)
+    def load_live_stations():
+        from src.ingestion.aqi_fetcher import OpenAQFetcher
+        return OpenAQFetcher().fetch_latest_pm25()
+
     np.random.seed(42)
-    mock_stations = pd.DataFrame({
+    demo_stations = pd.DataFrame({
         'lat': [28.6139, 28.5355, 28.7041, 28.5921], 
         'lon': [77.2090, 77.2641, 77.1025, 77.0460],
         'station': ['Central', 'South', 'North', 'West'],
@@ -139,11 +144,20 @@ with tab_map:
         'wind_v': np.random.uniform(-10, 10, 4)  
     })
     
-    sensor_map = create_sensor_map(mock_stations)
+    try:
+        stations = load_live_stations()
+        if stations.empty:
+            raise RuntimeError("OpenAQ returned no usable PM2.5 readings.")
+        st.caption(f"Showing {len(stations):,} recent monitoring observations. Refreshes every 10 minutes.")
+    except Exception as error:
+        stations = demo_stations
+        st.warning(f"Live OpenAQ data is unavailable, so the map is showing demo stations. ({error})")
+
+    sensor_map = create_sensor_map(stations, global_view=True)
     st_folium(sensor_map, width=1200, height=500, returned_objects=[])
 
     with st.expander("View Station Data"):
-        st.dataframe(mock_stations)
+        st.dataframe(stations)
 
 # ---------------------------------------------------------------------------
 # Tab 3: Historical Trends

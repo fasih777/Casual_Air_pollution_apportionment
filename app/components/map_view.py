@@ -1,6 +1,7 @@
 import folium
 import pandas as pd
 import numpy as np
+from folium.plugins import MarkerCluster
 
 def get_color_for_pm25(val):
     """Return standard AQI color mapping for PM2.5"""
@@ -11,7 +12,7 @@ def get_color_for_pm25(val):
     elif val <= 250.4: return 'purple'    # Very Unhealthy
     else: return 'darkred'                # Hazardous
 
-def create_sensor_map(df_stations: pd.DataFrame) -> folium.Map:
+def create_sensor_map(df_stations: pd.DataFrame, global_view: bool = False) -> folium.Map:
     """
     Creates a Folium map visualizing sensor locations, their PM2.5 levels,
     and optional wind vectors.
@@ -28,10 +29,15 @@ def create_sensor_map(df_stations: pd.DataFrame) -> folium.Map:
         m = folium.Map(location=[28.6139, 77.2090], zoom_start=11, tiles="CartoDB dark_matter")
         return m
         
-    # Center map on the mean coordinates
-    center_lat = df_stations['lat'].mean()
-    center_lon = df_stations['lon'].mean()
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles="CartoDB dark_matter")
+    # A global feed needs a world view and clustering; a small local network
+    # remains easy to inspect at the existing close zoom level.
+    center_lat = 20 if global_view else df_stations['lat'].mean()
+    center_lon = 0 if global_view else df_stations['lon'].mean()
+    zoom_start = 2 if global_view else 11
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles="CartoDB dark_matter")
+    marker_layer = MarkerCluster(name="PM2.5 monitoring stations") if global_view else m
+    if global_view:
+        marker_layer.add_to(m)
     
     for _, row in df_stations.iterrows():
         lat, lon = row['lat'], row['lon']
@@ -43,6 +49,13 @@ def create_sensor_map(df_stations: pd.DataFrame) -> folium.Map:
         
         # HTML Popup with data
         popup_html = f"<b>{name}</b><br>PM2.5: {pm25:.1f} µg/m³"
+        if pd.notna(row.get('observed_at')):
+            popup_html += f"<br>Observed: {row['observed_at']}"
+        if pd.notna(row.get('location_id')):
+            popup_html += (
+                f"<br><a href='https://explore.openaq.org/locations/{int(row['location_id'])}' "
+                "target='_blank'>OpenAQ details</a>"
+            )
         
         if 'wind_u' in row and 'wind_v' in row:
             u, v = row['wind_u'], row['wind_v']
@@ -70,6 +83,6 @@ def create_sensor_map(df_stations: pd.DataFrame) -> folium.Map:
             fill=True,
             fill_color=color,
             fill_opacity=0.7
-        ).add_to(m)
+        ).add_to(marker_layer)
         
     return m
