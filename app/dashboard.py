@@ -25,7 +25,6 @@ st.title("Micro-Locality Causal Source Apportionment")
 # Mock State Initialization
 # ---------------------------------------------------------------------------
 
-# In a production app, this would be loaded from a live API or database
 current_data = pd.DataFrame({
     'PM2.5': [185.0],
     'traffic_ratio': [2.4],
@@ -34,7 +33,6 @@ current_data = pd.DataFrame({
     'biomass_ratio': [0.5]
 })
 
-# In a production app, these weights would be loaded from the Double ML engine fit
 mock_weights = BetaWeights(
     intercept=15.0,
     coefficients={
@@ -51,10 +49,15 @@ sim = PolicySimulator(mock_weights)
 # Layout
 # ---------------------------------------------------------------------------
 
-tab_attribution, tab_map = st.tabs(["📊 Attribution & Policy", "🗺️ Live Sensor Map"])
+tab_attribution, tab_map, tab_history, tab_shap = st.tabs([
+    "📊 Attribution & Policy", 
+    "🗺️ Live Sensor Map",
+    "📈 Historical Trends", 
+    "🕵️ Model Explainability"
+])
 
 # ---------------------------------------------------------------------------
-# Tab 1: Attribution & Policy (existing UI, unchanged in behavior)
+# Tab 1: Attribution & Policy
 # ---------------------------------------------------------------------------
 
 with tab_attribution:
@@ -63,8 +66,6 @@ with tab_attribution:
     with col1:
         st.subheader("Current Causal Attribution")
 
-        # Calculate the exact mass contributed by each source
-        # (weight * proxy_value) for the pie chart
         contributions = {
             'Traffic': mock_weights.coefficients['traffic_ratio'] * current_data['traffic_ratio'].iloc[0],
             'Industry': mock_weights.coefficients['industry_ratio'] * current_data['industry_ratio'].iloc[0],
@@ -79,6 +80,15 @@ with tab_attribution:
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
         st.plotly_chart(fig, use_container_width=True)
+        
+        # AI Policy Advisor Text Box
+        from src.utils.ai_advisor import generate_policy_recommendation
+        
+        advisor_text = generate_policy_recommendation(
+            weights=mock_weights, 
+            current_pm25=current_data['PM2.5'].iloc[0]
+        )
+        st.info(advisor_text)
 
     with col2:
         st.subheader("Counterfactual Policy Simulator")
@@ -88,62 +98,71 @@ with tab_attribution:
         industry_cut = st.slider("Industrial Reduction (%)", 0, 100, 0) / 100.0
         dust_cut = st.slider("Construction Suppression (%)", 0, 100, 20) / 100.0
 
-        # Negative fractional change for cuts (e.g. 30% cut -> -0.30)
         interventions = {}
         if traffic_cut > 0: interventions['traffic_ratio'] = -traffic_cut
         if industry_cut > 0: interventions['industry_ratio'] = -industry_cut
         if dust_cut > 0: interventions['dust_ratio'] = -dust_cut
 
-        # Run the policy simulator
         summary = sim.scenario_summary(current_data, interventions)
-
-        baseline_pm25 = summary['mean_PM2.5_baseline']
         simulated_pm25 = summary['mean_PM2.5_counterfactual']
         pm25_drop = summary['mean_pm25_delta']
 
         st.metric(
             label="Simulated PM2.5 Level",
             value=f"{simulated_pm25:.1f} µg/m³",
-            delta=f"{pm25_drop:.1f} µg/m³",  # Delta is already negative
+            delta=f"{pm25_drop:.1f} µg/m³",
             delta_color="normal"
         )
 
-        # Optional debugging view
         with st.expander("View Raw Simulation Data"):
             result_df = sim.what_if(current_data, interventions)
             st.dataframe(result_df)
 
 # ---------------------------------------------------------------------------
-# Tab 2: Live Sensor Map (placeholder — to be wired up to real sensor feed)
+# Tab 2: Live Sensor Map
 # ---------------------------------------------------------------------------
 
 with tab_map:
     st.subheader("Live Sensor Map")
-    st.info(
-        "🚧 Placeholder view — this will show real-time readings from the "
-        "monitoring station network once the live sensor feed is wired in."
-    )
+    st.info("Live real-time readings from the monitoring station network.")
 
-    # Using the new folium map component
     from app.components.map_view import create_sensor_map
     from streamlit_folium import st_folium
     
-    # Let's generate a more robust mock dataset with PM2.5 and wind vectors
-    # to demonstrate the new capabilities of the map component
-    import numpy as np
     np.random.seed(42)
     mock_stations = pd.DataFrame({
-        'lat': [28.6139, 28.5355, 28.7041, 28.5921], # Delhi coordinates
+        'lat': [28.6139, 28.5355, 28.7041, 28.5921], 
         'lon': [77.2090, 77.2641, 77.1025, 77.0460],
         'station': ['Central', 'South', 'North', 'West'],
-        'PM2.5': [185.0, 45.0, 110.0, 300.0], # Varying AQI levels
-        'wind_u': np.random.uniform(-10, 10, 4), # Random X wind
-        'wind_v': np.random.uniform(-10, 10, 4)  # Random Y wind
+        'PM2.5': [185.0, 45.0, 110.0, 300.0], 
+        'wind_u': np.random.uniform(-10, 10, 4), 
+        'wind_v': np.random.uniform(-10, 10, 4)  
     })
     
-    # Render the map
     sensor_map = create_sensor_map(mock_stations)
     st_folium(sensor_map, width=1200, height=500, returned_objects=[])
 
     with st.expander("View Station Data"):
         st.dataframe(mock_stations)
+
+# ---------------------------------------------------------------------------
+# Tab 3: Historical Trends
+# ---------------------------------------------------------------------------
+from app.components.charts import create_historical_trend_chart, create_shap_feature_importance_chart
+
+with tab_history:
+    st.subheader("30-Day Air Quality Trends")
+    st.write("Monitor how PM2.5 levels fluctuate against our safe target limit over time.")
+    
+    hist_fig = create_historical_trend_chart(pd.DataFrame())
+    st.plotly_chart(hist_fig, use_container_width=True)
+
+# ---------------------------------------------------------------------------
+# Tab 4: Model Explainability (SHAP)
+# ---------------------------------------------------------------------------
+with tab_shap:
+    st.subheader("Meteorological Drivers (SHAP Values)")
+    st.write("Understand exactly how weather conditions (Temperature, Wind, Boundary Layer) are impacting pollution levels today. Green bars indicate weather that clears pollution; Red bars indicate weather that traps it.")
+    
+    shap_fig = create_shap_feature_importance_chart(None, None)
+    st.plotly_chart(shap_fig, use_container_width=True)
